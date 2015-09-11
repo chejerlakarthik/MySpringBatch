@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:batch="http://www.springframework.org/schema/batch"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+		http://www.springframework.org/schema/batch http://www.springframework.org/schema/batch/spring-batch.xsd">
+
+	<batch:job id="employeeCreationBatch">
+		<batch:step id="employeeCreationBatchStep">
+			<batch:tasklet>
+				<batch:chunk commit-interval="5" skip-limit="1">
+					<batch:reader>
+						<ref bean="employeeReader" />
+					</batch:reader>
+					<batch:writer>
+						<ref bean="employeeWriter" />
+					</batch:writer>
+					<batch:processor>
+						<ref bean="employeeProcessor" />
+					</batch:processor>
+					<batch:skippable-exception-classes>
+						<batch:include class="org.springframework.batch.item.file.FlatFileParseException"/>
+					</batch:skippable-exception-classes>
+				</batch:chunk>
+			</batch:tasklet>
+		</batch:step>
+	</batch:job>
+
+	<bean id="jobRepository"
+		class="org.springframework.batch.core.repository.support.JobRepositoryFactoryBean">
+		<property name="dataSource" ref="dataSource" />
+		<property name="transactionManager" ref="transactionManager" />
+		<property name="databaseType" value="POSTGRES"/>
+	</bean>
+
+	<bean id="jobLauncher"
+		class="org.springframework.batch.core.launch.support.SimpleJobLauncher">
+		<property name="jobRepository" ref="jobRepository" />
+	</bean>
+	
+	<bean id="dataSource" class="org.apache.commons.dbcp.BasicDataSource">
+		<property name="driverClassName" value="org.postgresql.Driver" />
+		<property name="url" value="jdbc:postgresql://localhost:5432/postgres" />
+		<property name="username" value="postgres" />
+		<property name="password" value="password" />
+	</bean>
+
+	<bean id="transactionManager"
+		class="org.springframework.batch.support.transaction.ResourcelessTransactionManager">
+		<property name="rollbackOnCommitFailure" value="true" />
+	</bean>
+
+	<bean id="employeeReader" class="org.springframework.batch.item.file.FlatFileItemReader" scope="singleton">
+		<!-- <property name="resource" value="classpath:employees.csv" /> -->
+		<property name="resource" value="file:#{jobParameters['inputFileName']}" />
+		<property name="lineMapper" ref="employeeLineMapper" />
+		<property name="linesToSkip" value="1" />
+	</bean>
+
+	<bean id="employeeLineMapper"
+		class="org.springframework.batch.item.file.mapping.DefaultLineMapper">
+		<property name="lineTokenizer" ref="employeeLineTokenizer" />
+		<property name="fieldSetMapper" ref="employeeFieldSetMapper" />
+	</bean>
+
+	<bean id="employeeLineTokenizer"
+		class="org.springframework.batch.item.file.transform.DelimitedLineTokenizer">
+		<property name="names"
+			value="employeeId,employeeName,companyName,designation,joiningDate,monthlySalary,variablePay" />
+		<!-- <property name="names"
+			value="employeeId,employeeName,companyName,designation,monthlySalary,variablePay" /> -->
+		<property name="delimiter" value="," />
+	</bean>
+
+	<bean id="employeeFieldSetMapper"
+		class="org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper">
+		<property name="prototypeBeanName" value="employeeBean" />
+		<property name="customEditors">
+			<map>
+				<entry key="java.util.Date">
+					<ref bean="customDateEditor"/>
+				</entry>
+			</map>
+		</property>
+	</bean>
+
+	<bean id="employeeBean" class="org.javabrains.batch.beans.Employee"
+		scope="prototype" />
+	
+	<bean id="customDateEditor" class="org.springframework.beans.propertyeditors.CustomDateEditor">
+		<constructor-arg>
+			<bean class="java.text.SimpleDateFormat">
+				<constructor-arg value="MM-dd-yyyy"/>
+			</bean>
+		</constructor-arg>
+		<constructor-arg value="true"/>
+	</bean>
+	
+	<bean id="employeeProcessor" class="org.javabrains.batch.processor.EmployeeProcessor" />
+
+	<bean id="employeeWriter"
+		class="org.springframework.batch.item.database.JdbcBatchItemWriter">
+		<property name="dataSource" ref="dataSource" />
+		<property name="sql">
+			<value>
+				<![CDATA[
+				INSERT INTO "CK"."EMPLOYEE_DETAILS"(
+            	employee_id, employee_name, company_name, designation, 
+            	monthly_salary, work_experience, variable_pay, cost_to_company, joining_date)
+    			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) 
+				]]>
+			</value>
+		</property>
+		<property name="itemPreparedStatementSetter" ref="preparedStatementSetter" />
+	</bean>
+
+	<bean id="preparedStatementSetter"
+		class="org.javabrains.batch.processor.EmployeePreparedStatementSetter" />
+	
+</beans>
